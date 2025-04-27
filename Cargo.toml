@@ -1,0 +1,11 @@
+[package]
+name = "compress-jpeg"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+js-sys = "0.3.77"
+wasm-bindgen = "0.2"
+
+[lib]
+crate-type = ["cdylib"]

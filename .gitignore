@@ -1,0 +1,10 @@
+# See https://doc.rust-lang.org/cargo/reference/manifest.html#the-ignore-file for more about ignoring files.
+
+# dependencies
+target
+
+# production
+pkg
+
+# misc
+Cargo.lock
