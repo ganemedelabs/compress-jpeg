@@ -34,7 +34,7 @@ impl ImageData {
 }
 
 #[wasm_bindgen]
-pub fn simulate_jpeg_compression(
+pub fn compress_jpeg(
     image_data: ImageData,
     quality: f32,
 ) -> Result<ImageData, JsValue> {

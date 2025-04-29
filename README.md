@@ -26,7 +26,7 @@ A high-performance **WASM** module that simulates JPEG compression artifacts on 
 Install the package via npm:
 
 ```bash
-npm install csspectrum
+npm install compress-jpeg
 ```
 
 ## 🚀 Usage
@@ -60,7 +60,7 @@ Here's an example of how to integrate **compress-jpeg** with plain TypeScript in
 
 ```typescript
 // main.ts
-import { ImageData as RustImageData, simulate_jpeg_compression } from "simulate-jpeg-simulator";
+import { ImageData as RustImageData, compress_jpeg } from "compress-jpeg";
 
 const fileInput = document.getElementById("fileInput") as HTMLInputElement;
 const originalCanvas = document.getElementById("originalCanvas") as HTMLCanvasElement;
@@ -93,7 +93,7 @@ fileInput.addEventListener("change", async () => {
         );
 
         // Simulate JPEG compression at quality=30
-        const output = simulate_jpeg_compression(rustInput, 30);
+        const output = compress_jpeg(rustInput, 30);
 
         // Convert back to browser ImageData
         const processedData = new ImageData(output.data(), output.width(), output.height());

@@ -4,7 +4,7 @@
 # 1. Triggers on push to the main branch.
 # 2. Checks out the repository code with full Git history.
 # 3. Sets up the Rust toolchain and adds the wasm32-unknown-unknown target.
-# 4. Installs wasm-pack and builds the project for bundler target, outputting to /pkg.
+# 4. Installs wasm-pack and builds the project for web target, outputting to /pkg.
 # 5. Sets up Node.js 20 and configures the NPM registry.
 # 6. Compares the current version in pkg/package.json with the latest version on NPM.
 # 7. Publishes the contents of /pkg to NPM with public access if the version has changed.
@@ -32,12 +32,10 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            # 1. Get the full repo
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 0
 
-            # 2. Install Rust and add the wasm32 target
             - name: Setup Rust
               uses: actions-rs/toolchain@v1
               with:
@@ -48,21 +46,18 @@ jobs:
             - name: Add wasm32 target
               run: rustup target add wasm32-unknown-unknown
 
-            # 3. Install wasm-pack and build
             - name: Install wasm-pack
               run: cargo install wasm-pack
 
             - name: Build with wasm-pack
-              run: wasm-pack build --target bundler
+              run: wasm-pack build --target web --out-dir pkg --release
 
-            # 4. Prepare Node.js for publishing
             - name: Setup Node.js
               uses: actions/setup-node@v2
               with:
                   node-version: "20"
                   registry-url: "https://registry.npmjs.org"
 
-            # 5. Compare versions (in pkg/package.json) and decide
             - name: Check package version
               id: check
               run: |
@@ -81,7 +76,6 @@ jobs:
                     echo "version_changed=false" >> $GITHUB_OUTPUT
                   fi
 
-            # 6. Publish if changed
             - name: Publish to npm
               if: steps.check.outputs.version_changed == 'true'
               working-directory: pkg

@@ -1,7 +1,10 @@
 [package]
 name = "compress-jpeg"
-version = "1.0.0"
+version = "1.0.4"
 edition = "2024"
+description = "A simple JPEG compression library for WebAssembly"
+license = "MIT"
+keywords = ["jpeg", "compression", "webassembly", "rust-wasm"]
 
 [dependencies]
 js-sys = "0.3.77"
