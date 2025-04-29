@@ -60,7 +60,7 @@ Here's an example of how to integrate **compress-jpeg** with plain TypeScript in
 
 ```typescript
 // main.ts
-import { ImageData as RustImageData, compress_jpeg } from "compress-jpeg";
+import init, { ImageData as RustImageData, compress_jpeg } from "compress-jpeg";
 
 const fileInput = document.getElementById("fileInput") as HTMLInputElement;
 const originalCanvas = document.getElementById("originalCanvas") as HTMLCanvasElement;
@@ -69,6 +69,9 @@ const processedCanvas = document.getElementById("processedCanvas") as HTMLCanvas
 fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
+
+    // Initialize the WASM module with an explicit path
+    await init("/compress_jpeg_bg.wasm");
 
     // Load image into an off-screen canvas
     const img = new Image();
