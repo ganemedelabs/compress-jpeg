@@ -70,8 +70,8 @@ fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
 
-    // Initialize the WASM module with an explicit path
-    await init("/compress_jpeg_bg.wasm");
+    // Initialize the WASM module
+    await init();
 
     // Load image into an off-screen canvas
     const img = new Image();
@@ -89,22 +89,25 @@ fileInput.addEventListener("change", async () => {
 
         // Extract raw pixel data
         const browserImageData = ctx.getImageData(0, 0, img.width, img.height);
-        const rustInput = new RustImageData(
+        const input = new RustImageData(
+            new Uint8ClampedArray(browserImageData.data),
             browserImageData.width,
-            browserImageData.height,
-            new Uint8ClampedArray(browserImageData.data)
+            browserImageData.height
         );
 
         // Simulate JPEG compression at quality=30
-        const output = compress_jpeg(rustInput, 30);
+        const output = compress_jpeg(input, 30);
 
         // Convert back to browser ImageData
-        const processedData = new ImageData(output.data(), output.width(), output.height());
+        const processedData = new ImageData(new Uint8ClampedArray(output.data()), output.width(), output.height());
 
         // Draw on visible canvas
         processedCanvas.width = output.width();
         processedCanvas.height = output.height();
         processedCanvas.getContext("2d")!.putImageData(processedData, 0, 0);
+
+        // Free the WebAssembly memory
+        output.free();
     };
 });
 ```

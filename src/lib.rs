@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use js_sys::Uint8ClampedArray;
+use wasm_bindgen_futures::future_to_promise;
 
 #[wasm_bindgen]
 pub struct ImageData {
@@ -11,7 +12,7 @@ pub struct ImageData {
 #[wasm_bindgen]
 impl ImageData {
     #[wasm_bindgen(constructor)]
-    pub fn new(width: u32, height: u32, data: Uint8ClampedArray) -> ImageData {
+    pub fn new(data: Uint8ClampedArray, width: u32, height: u32) -> ImageData {
         let data_vec = data.to_vec();
         ImageData {
             width,
@@ -34,7 +35,7 @@ impl ImageData {
 }
 
 #[wasm_bindgen]
-pub fn compress_jpeg(
+pub async fn compress_jpeg(
     image_data: ImageData,
     quality: f32,
 ) -> Result<ImageData, JsValue> {
