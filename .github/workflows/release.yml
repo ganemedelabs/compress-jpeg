@@ -1,0 +1,73 @@
+# Workflow: Create GitHub Release
+#
+# Description:
+#   This workflow automatically creates a GitHub release when changes
+#   are pushed to the main branch, but only if the version in
+#   package.json is different from the version of the latest existing
+#   GitHub release.
+
+name: Create GitHub Release
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Rust
+              uses: actions-rs/toolchain@v1
+              with:
+                  toolchain: stable
+                  profile: minimal
+                  override: true
+
+            - name: Add wasm32 target
+              run: rustup target add wasm32-unknown-unknown
+
+            - name: Install wasm-pack
+              run: cargo install wasm-pack
+
+            - name: Build with wasm-pack
+              run: wasm-pack build --target web --out-dir pkg --release
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  registry-url: "https://registry.npmjs.org"
+
+            - name: Check version change
+              id: check
+              run: |
+                  CURRENT_VERSION=$(jq -r .version package.json)
+                  LATEST_TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName' || echo "v0.0.0")
+                  LATEST_VERSION="${LATEST_TAG#v}"
+
+                  if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+                    echo "version_changed=true" >> $GITHUB_OUTPUT
+                    echo "new_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+                  else
+                    echo "version_changed=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Create GitHub Release
+              if: steps.check.outputs.version_changed == 'true'
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ steps.check.outputs.new_version }}
+                  name: Release v${{ steps.check.outputs.new_version }}
+                  body: |
+                      🎉 New version released: v${{ steps.check.outputs.new_version }}
+
+                      - Package: `${{ github.repository }}`
+                      - Version: `${{ steps.check.outputs.new_version }}`
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

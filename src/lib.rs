@@ -1,58 +1,49 @@
 use wasm_bindgen::prelude::*;
-use js_sys::Uint8ClampedArray;
-use wasm_bindgen_futures::future_to_promise;
+use web_sys::ImageData as BrowserImageData;
 
+/// Compress an ImageData using a simplified JPEG-style pipeline.
+///
+/// **Parameters:**
+/// - `image_data`: The RGBA ImageData to compress.
+/// - `compression`: A value from 0.0–1.0:
+///     - 0.0 = no compression (highest quality)
+///     - 1.0 = strongest compression (lowest quality)
+///
+/// **Returns:**
+/// A new `ImageData` object containing the visually compressed pixels.
 #[wasm_bindgen]
-pub struct ImageData {
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
-}
+pub fn compress_jpeg(
+    image_data: BrowserImageData,
+    compression: f32,
+) -> Result<BrowserImageData, JsValue> {
+    if compression <= 0.0 {
+        let width = image_data.width();
+        let height = image_data.height();
+        let data = image_data.data();
 
-#[wasm_bindgen]
-impl ImageData {
-    #[wasm_bindgen(constructor)]
-    pub fn new(data: Uint8ClampedArray, width: u32, height: u32) -> ImageData {
-        let data_vec = data.to_vec();
-        ImageData {
+        return BrowserImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(&data.to_vec()),
             width,
             height,
-            data: data_vec,
-        }
+        );
     }
 
-    pub fn width(&self) -> u32 {
-        self.width
-    }
+    let width = image_data.width() as usize;
+    let height = image_data.height() as usize;
 
-    pub fn height(&self) -> u32 {
-        self.height
-    }
+    let data_vec: Vec<u8> = image_data.data().to_vec();
 
-    pub fn data(&self) -> Uint8ClampedArray {
-        Uint8ClampedArray::from(self.data.as_slice())
-    }
-}
-
-#[wasm_bindgen]
-pub async fn compress_jpeg(
-    image_data: ImageData,
-    quality: f32,
-) -> Result<ImageData, JsValue> {
-    let width = image_data.width as usize;
-    let height = image_data.height as usize;
-    let data = image_data.data;
-
-    let mut y_matrix: Vec<Vec<f32>> = vec![vec![0.0; width]; height];
-    let mut cb_matrix: Vec<Vec<f32>> = vec![vec![0.0; width]; height];
-    let mut cr_matrix: Vec<Vec<f32>> = vec![vec![0.0; width]; height];
+    let mut y_matrix = vec![vec![0.0; width]; height];
+    let mut cb_matrix = vec![vec![0.0; width]; height];
+    let mut cr_matrix = vec![vec![0.0; width]; height];
 
     for y in 0..height {
         for x in 0..width {
             let idx = (y * width + x) * 4;
-            let r = data[idx] as f32;
-            let g = data[idx + 1] as f32;
-            let b = data[idx + 2] as f32;
+            let r = data_vec[idx] as f32;
+            let g = data_vec[idx + 1] as f32;
+            let b = data_vec[idx + 2] as f32;
+
             y_matrix[y][x] = 0.299 * r + 0.587 * g + 0.114 * b;
             cb_matrix[y][x] = -0.168736 * r - 0.331264 * g + 0.5 * b + 128.0;
             cr_matrix[y][x] = 0.5 * r - 0.418688 * g - 0.081312 * b + 128.0;
@@ -61,8 +52,10 @@ pub async fn compress_jpeg(
 
     let subsampled_w = width / 2;
     let subsampled_h = height / 2;
-    let mut cb_sub: Vec<Vec<f32>> = vec![vec![0.0; subsampled_w]; subsampled_h];
-    let mut cr_sub: Vec<Vec<f32>> = vec![vec![0.0; subsampled_w]; subsampled_h];
+
+    let mut cb_sub = vec![vec![0.0; subsampled_w]; subsampled_h];
+    let mut cr_sub = vec![vec![0.0; subsampled_w]; subsampled_h];
+
     for y in 0..subsampled_h {
         for x in 0..subsampled_w {
             cb_sub[y][x] = cb_matrix[y * 2][x * 2];
@@ -81,66 +74,15 @@ pub async fn compress_jpeg(
         [72, 92, 95, 98, 112, 100, 103, 99],
     ];
 
-    let scale = if quality < 50.0 {
-        5000.0 / quality
-    } else {
-        200.0 - quality * 2.0
-    } / 100.0;
+    let c = compression.clamp(0.0, 1.0);
+
+    const MAX_FACTOR: f32 = 20.0;
+
+    let scale_factor = 1.0 + c * MAX_FACTOR;
 
     let quant_matrix: [[u32; 8]; 8] = std_quant_matrix.map(|row| {
-        row.map(|val| (val as f32 * scale).floor().max(1.0) as u32)
+        row.map(|v| (v as f32 * scale_factor).floor().max(1.0) as u32)
     });
-
-    fn process_blocks(
-        channel: Vec<Vec<f32>>,
-        width: usize,
-        height: usize,
-        quant_matrix: [[u32; 8]; 8],
-    ) -> Vec<Vec<f32>> {
-        let mut processed = vec![vec![0.0; width]; height];
-
-        for i in (0..height).step_by(8) {
-            for j in (0..width).step_by(8) {
-                let mut block = [[0.0; 8]; 8];
-                for u in 0..8 {
-                    for v in 0..8 {
-                        let y_idx = i + u;
-                        let x_idx = j + v;
-                        if y_idx < height && x_idx < width {
-                            block[u][v] = channel[y_idx][x_idx];
-                        }
-                    }
-                }
-
-                let dct_block = dct2d(block);
-                let mut quantized = [[0.0; 8]; 8];
-                for u in 0..8 {
-                    for v in 0..8 {
-                        quantized[u][v] = (dct_block[u][v] / quant_matrix[u][v] as f32).round();
-                    }
-                }
-
-                for u in 0..8 {
-                    for v in 0..8 {
-                        quantized[u][v] *= quant_matrix[u][v] as f32;
-                    }
-                }
-
-                let block_idct = idct2d(quantized);
-
-                for u in 0..8 {
-                    for v in 0..8 {
-                        let y_idx = i + u;
-                        let x_idx = j + v;
-                        if y_idx < height && x_idx < width {
-                            processed[y_idx][x_idx] = block_idct[u][v];
-                        }
-                    }
-                }
-            }
-        }
-        processed
-    }
 
     fn dct2d(block: [[f32; 8]; 8]) -> [[f32; 8]; 8] {
         let mut dct = [[0.0; 8]; 8];
@@ -154,8 +96,8 @@ pub async fn compress_jpeg(
                             * ((2 * y + 1) as f32 * v as f32 * std::f32::consts::PI / 16.0).cos();
                     }
                 }
-                let cu = if u == 0 { 1.0 / 2.0f32.sqrt() } else { 1.0 };
-                let cv = if v == 0 { 1.0 / 2.0f32.sqrt() } else { 1.0 };
+                let cu = if u == 0 { 1.0 / 2.0_f32.sqrt() } else { 1.0 };
+                let cv = if v == 0 { 1.0 / 2.0_f32.sqrt() } else { 1.0 };
                 dct[u][v] = 0.25 * cu * cv * sum;
             }
         }
@@ -169,8 +111,8 @@ pub async fn compress_jpeg(
                 let mut sum = 0.0;
                 for u in 0..8 {
                     for v in 0..8 {
-                        let cu = if u == 0 { 1.0 / 2.0f32.sqrt() } else { 1.0 };
-                        let cv = if v == 0 { 1.0 / 2.0f32.sqrt() } else { 1.0 };
+                        let cu = if u == 0 { 1.0 / 2.0_f32.sqrt() } else { 1.0 };
+                        let cv = if v == 0 { 1.0 / 2.0_f32.sqrt() } else { 1.0 };
                         sum += cu * cv * dct[u][v]
                             * ((2 * x + 1) as f32 * u as f32 * std::f32::consts::PI / 16.0).cos()
                             * ((2 * y + 1) as f32 * v as f32 * std::f32::consts::PI / 16.0).cos();
@@ -182,43 +124,94 @@ pub async fn compress_jpeg(
         block
     }
 
-    let y_processed = process_blocks(y_matrix, width, height, quant_matrix);
-    let cb_processed = process_blocks(cb_sub.clone(), subsampled_w, subsampled_h, quant_matrix);
-    let cr_processed = process_blocks(cr_sub, subsampled_w, subsampled_h, quant_matrix);
+    fn process_blocks(
+        channel: Vec<Vec<f32>>,
+        width: usize,
+        height: usize,
+        quant: [[u32; 8]; 8],
+    ) -> Vec<Vec<f32>> {
+        let mut out = vec![vec![0.0; width]; height];
 
-    let mut cb_up: Vec<Vec<f32>> = vec![vec![0.0; width]; height];
-    let mut cr_up: Vec<Vec<f32>> = vec![vec![0.0; width]; height];
-    for y in 0..height {
-        for x in 0..width {
-            let src_y = y / 2;
-            let src_x = x / 2;
-            if src_y < subsampled_h && src_x < subsampled_w {
-                cb_up[y][x] = cb_processed[src_y][src_x];
-                cr_up[y][x] = cr_processed[src_y][src_x];
+        for by in (0..height).step_by(8) {
+            for bx in (0..width).step_by(8) {
+
+                let mut block = [[0.0; 8]; 8];
+                for u in 0..8 {
+                    for v in 0..8 {
+                        let y = by + u;
+                        let x = bx + v;
+                        if y < height && x < width {
+                            block[u][v] = channel[y][x];
+                        }
+                    }
+                }
+
+                let dct = dct2d(block);
+
+                let mut q = [[0.0; 8]; 8];
+                for u in 0..8 {
+                    for v in 0..8 {
+                        q[u][v] = (dct[u][v] / quant[u][v] as f32).round();
+                        q[u][v] *= quant[u][v] as f32;
+                    }
+                }
+
+                let idct = idct2d(q);
+
+                for u in 0..8 {
+                    for v in 0..8 {
+                        let y = by + u;
+                        let x = bx + v;
+                        if y < height && x < width {
+                            out[y][x] = idct[u][v];
+                        }
+                    }
+                }
             }
         }
+
+        out
     }
 
-    let mut output_data = vec![0; width * height * 4];
+    let y_proc = process_blocks(y_matrix, width, height, quant_matrix);
+    let cb_proc = process_blocks(cb_sub.clone(), subsampled_w, subsampled_h, quant_matrix);
+    let cr_proc = process_blocks(cr_sub,   subsampled_w, subsampled_h, quant_matrix);
+
+    let mut cb_up = vec![vec![0.0; width]; height];
+    let mut cr_up = vec![vec![0.0; width]; height];
+
     for y in 0..height {
         for x in 0..width {
-            let y_val = y_processed[y][x];
-            let cb_val = cb_up[y][x] - 128.0;
-            let cr_val = cr_up[y][x] - 128.0;
-            let r = y_val + 1.402 * cr_val;
-            let g = y_val - 0.344136 * cb_val - 0.714136 * cr_val;
-            let b = y_val + 1.772 * cb_val;
-            let idx = (y * width + x) * 4;
-            output_data[idx] = r.round().clamp(0.0, 255.0) as u8;
-            output_data[idx + 1] = g.round().clamp(0.0, 255.0) as u8;
-            output_data[idx + 2] = b.round().clamp(0.0, 255.0) as u8;
-            output_data[idx + 3] = 255;
+            let sy = y / 2;
+            let sx = x / 2;
+            cb_up[y][x] = cb_proc[sy][sx];
+            cr_up[y][x] = cr_proc[sy][sx];
         }
     }
 
-    Ok(ImageData {
-        width: width as u32,
-        height: height as u32,
-        data: output_data,
-    })
+    let mut out = vec![0u8; width * height * 4];
+
+    for y in 0..height {
+        for x in 0..width {
+            let y_value = y_proc[y][x];
+            let cb = cb_up[y][x] - 128.0;
+            let cr = cr_up[y][x] - 128.0;
+
+            let r = y_value + 1.402 * cr;
+            let g = y_value - 0.344136 * cb - 0.714136 * cr;
+            let b = y_value + 1.772 * cb;
+
+            let idx = (y * width + x) * 4;
+            out[idx]     = r.clamp(0.0, 255.0) as u8;
+            out[idx + 1] = g.clamp(0.0, 255.0) as u8;
+            out[idx + 2] = b.clamp(0.0, 255.0) as u8;
+            out[idx + 3] = 255;
+        }
+    }
+
+    BrowserImageData::new_with_u8_clamped_array_and_sh(
+        wasm_bindgen::Clamped(&out[..]),
+        width as u32,
+        height as u32,
+    )
 }

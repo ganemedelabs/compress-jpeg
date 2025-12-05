@@ -1,10 +1,18 @@
 # Compress JPEG
 
-![npm](https://img.shields.io/npm/v/compress-jpeg)
-![npm](https://img.shields.io/npm/dw/compress-jpeg)
+![Version](https://img.shields.io/npm/v/compress-jpeg)
+![Downloads](https://img.shields.io/npm/dw/compress-jpeg)
 ![License](https://img.shields.io/npm/l/compress-jpeg)
 
-A high-performance **WASM** module that simulates JPEG compression artifacts on raw image data, designed to be used easily in JavaScript or TypeScript environments via an npm package.
+A lightweight WebAssembly-powered JPEG-like compressor written in Rust, exposed as an easy-to-use JavaScript API. This package performs a simplified JPEG pipeline entirely in WASM, including:
+
+-   RGB → YCbCr conversion
+-   4:2:0 chroma subsampling
+-   8×8 DCT + quantization
+-   Inverse DCT
+-   Reconstruction to RGBA
+
+The output is not a `.jpg` file, but a visually compressed `ImageData` that simulates JPEG compression artifacts—including blockiness, color loss, and ringing—directly in the browser.
 
 ## 📋 Table of Contents
 
@@ -16,100 +24,53 @@ A high-performance **WASM** module that simulates JPEG compression artifacts on 
 
 ## ✨ Features
 
--   **Fast** and **portable** through WebAssembly.
--   Supports customizable **compression quality**.
--   Accepts and returns raw **RGBA pixel data**.
--   Pure Rust core with zero dependencies beyond `wasm-bindgen`.
+-   Fast WebAssembly image compression (Rust + wasm-bindgen)
+-   Fully controllable compression strength (`0.0 → 1.0`)
+-   Implements a full JPEG-style DCT/IDCT pipeline
+-   Produces visible JPEG artifacts at higher compression levels
+-   Works directly with Canvas `ImageData`
+-   Zero dependencies — tiny package size
+-   Browser-friendly and easy to use
+-   Simple API: `compress_jpeg(imageData: ImageData, compression: number): ImageData`
 
 ## 🔧 Installation
 
-Install the package via npm:
-
 ```bash
 npm install compress-jpeg
+# or
+yarn add compress-jpeg
 ```
 
 ## 🚀 Usage
 
-Here's an example of how to integrate **compress-jpeg** with plain TypeScript in the browser. This snippet shows:
-
-1. Loading an image file via an HTML `<input>`.
-2. Drawing it to an off-screen canvas and extracting pixel data.
-3. Passing the data to the WASM function.
-4. Rendering the compressed output back onto a visible canvas.
-
-```html
-<!-- index.html -->
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>WASM JPEG Simulator Demo</title>
-    </head>
-    <body>
-        <!-- File input and canvases -->
-        <input id="fileInput" type="file" accept="image/*" />
-        <canvas id="originalCanvas" style="display:none;"></canvas>
-        <canvas id="processedCanvas"></canvas>
-
-        <script type="module" src="main.ts"></script>
-    </body>
-</html>
-```
-
 ```typescript
-// main.ts
-import init, { ImageData as RustImageData, compress_jpeg } from "compress-jpeg";
+import init, { compress_jpeg } from "compress-jpeg";
 
-const fileInput = document.getElementById("fileInput") as HTMLInputElement;
-const originalCanvas = document.getElementById("originalCanvas") as HTMLCanvasElement;
-const processedCanvas = document.getElementById("processedCanvas") as HTMLCanvasElement;
+async function run() {
+    await init(); // initialize WASM module
 
-fileInput.addEventListener("change", async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
+    const canvas = document.getElementById("my-canvas") as HTMLCanvasElement;
+    const ctx = canvas.getContext("2d")!;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    // Initialize the WASM module
-    await init();
+    /**
+     * Compression strength (0.0 → 1.0)
+     *
+     * - 0.0 = no compression (highest quality)
+     * - 1.0 = strongest compression (lowest quality, heavy artifacts)
+     *
+     * Recommended ranges:
+     * - 0.7–1.0 → strong blockiness / heavy JPEG artifacts
+     * - 0.3–0.7 → medium compression
+     * - 0.0–0.3 → light compression / near-lossless
+     */
+    const compression = 0.4;
 
-    // Load image into an off-screen canvas
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => {
-        img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
+    const output = compress_jpeg(imageData, compression);
 
-    img.onload = () => {
-        originalCanvas.width = img.width;
-        originalCanvas.height = img.height;
-        const ctx = originalCanvas.getContext("2d")!;
-        ctx.drawImage(img, 0, 0);
-
-        // Extract raw pixel data
-        const browserImageData = ctx.getImageData(0, 0, img.width, img.height);
-        const input = new RustImageData(
-            new Uint8ClampedArray(browserImageData.data),
-            browserImageData.width,
-            browserImageData.height
-        );
-
-        // Simulate JPEG compression at quality=30
-        const output = compress_jpeg(input, 30);
-
-        // Convert back to browser ImageData
-        const processedData = new ImageData(new Uint8ClampedArray(output.data()), output.width(), output.height());
-
-        // Draw on visible canvas
-        processedCanvas.width = output.width();
-        processedCanvas.height = output.height();
-        processedCanvas.getContext("2d")!.putImageData(processedData, 0, 0);
-
-        // Free the WebAssembly memory
-        output.free();
-    };
-});
+    // Draw result onto canvas
+    ctx.putImageData(output, 0, 0);
+}
 ```
 
 ## 📜 License
